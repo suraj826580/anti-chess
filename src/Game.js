@@ -1,22 +1,48 @@
 import React, { useState, useEffect } from "react";
 import styled from "styled-components";
 import Board from "./Board";
+import MoveHistory from "./MoveHistory";
+import GameInfo from "./GameInfo";
 
 const GameWrapper = styled.div`
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+  padding: 20px;
+`;
+
+const GameBoard = styled.div`
   display: flex;
   flex-direction: column;
   align-items: center;
 `;
 
+const SidePanel = styled.div`
+  display: flex;
+  flex-direction: column;
+  margin-left: 20px;
+`;
+
 const StatusMessage = styled.div`
   margin: 20px 0;
   font-size: 18px;
+  font-weight: bold;
 `;
 
 const Button = styled.button`
   margin: 10px;
-  padding: 5px 10px;
+  padding: 10px 20px;
   font-size: 16px;
+  background-color: #4caf50;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  transition: background-color 0.3s ease;
+
+  &:hover {
+    background-color: #45a049;
+  }
 `;
 
 const initialBoard = [
@@ -55,6 +81,13 @@ const Game = () => {
   const [selectedPiece, setSelectedPiece] = useState(null);
   const [status, setStatus] = useState("Select a piece to move");
   const [capturePositions, setCapturePositions] = useState([]);
+  const [validMoves, setValidMoves] = useState([]);
+  const [moveHistory, setMoveHistory] = useState([]);
+  const [enPassantTarget, setEnPassantTarget] = useState(null);
+  const [whiteCanCastleKingside, setWhiteCanCastleKingside] = useState(true);
+  const [whiteCanCastleQueenside, setWhiteCanCastleQueenside] = useState(true);
+  const [blackCanCastleKingside, setBlackCanCastleKingside] = useState(true);
+  const [blackCanCastleQueenside, setBlackCanCastleQueenside] = useState(true);
 
   useEffect(() => {
     const newCapturePositions = findCapturePositions();
@@ -126,9 +159,13 @@ const Game = () => {
   const getPawnMoves = (row, col, color) => {
     const moves = [];
     const direction = color === "white" ? -1 : 1;
+    const startRow = color === "white" ? 6 : 1;
 
     if (!board[row + direction][col]) {
       moves.push([row + direction, col]);
+      if (row === startRow && !board[row + 2 * direction][col]) {
+        moves.push([row + 2 * direction, col]);
+      }
     }
 
     if (
@@ -144,6 +181,13 @@ const Game = () => {
       board[row + direction][col + 1].color !== color
     ) {
       moves.push([row + direction, col + 1]);
+    }
+
+    if (enPassantTarget) {
+      const [epRow, epCol] = enPassantTarget;
+      if (Math.abs(col - epCol) === 1 && row + direction === epRow) {
+        moves.push([epRow, epCol]);
+      }
     }
 
     return moves;
@@ -222,7 +266,74 @@ const Game = () => {
         }
       }
     }
+
+    if (currentPlayer === "white") {
+      if (
+        whiteCanCastleKingside &&
+        board[7][5] === null &&
+        board[7][6] === null
+      ) {
+        moves.push([7, 6]);
+      }
+      if (
+        whiteCanCastleQueenside &&
+        board[7][1] === null &&
+        board[7][2] === null &&
+        board[7][3] === null
+      ) {
+        moves.push([7, 2]);
+      }
+    } else {
+      if (
+        blackCanCastleKingside &&
+        board[0][5] === null &&
+        board[0][6] === null
+      ) {
+        moves.push([0, 6]);
+      }
+      if (
+        blackCanCastleQueenside &&
+        board[0][1] === null &&
+        board[0][2] === null &&
+        board[0][3] === null
+      ) {
+        moves.push([0, 2]);
+      }
+    }
+
     return moves;
+  };
+
+  const checkWinCondition = (board) => {
+    const currentPlayerPieces = board
+      .flat()
+      .filter((piece) => piece && piece.color === currentPlayer);
+    return currentPlayerPieces.length === 0;
+  };
+
+  const checkStalemate = () => {
+    for (let row = 0; row < 8; row++) {
+      for (let col = 0; col < 8; col++) {
+        const piece = board[row][col];
+        if (piece && piece.color === currentPlayer) {
+          const moves = getValidMoves(row, col);
+          if (moves.length > 0) {
+            return false;
+          }
+        }
+      }
+    }
+    return true;
+  };
+
+  const promotePawn = (row, col) => {
+    const color = board[row][col].color;
+    const promotionPieces = ["queen", "rook", "bishop", "knight"];
+    const newPiece =
+      promotionPieces[Math.floor(Math.random() * promotionPieces.length)];
+    const newBoard = [...board];
+    newBoard[row][col] = { type: newPiece, color: color };
+    setBoard(newBoard);
   };
 
   const handleSquareClick = (row, col) => {
@@ -238,19 +349,53 @@ const Game = () => {
       ) {
         setStatus("You must capture a piece");
         setSelectedPiece(null);
+        setValidMoves([]);
         return;
       }
 
-      const validMoves = getValidMoves(selectedRow, selectedCol);
       const isValidMove = validMoves.some(([r, c]) => r === row && c === col);
 
       if (isValidMove) {
         const newBoard = board.map((row) => [...row]);
         newBoard[row][col] = piece;
         newBoard[selectedRow][selectedCol] = null;
+
+        if (piece.type === "king" && Math.abs(selectedCol - col) === 2) {
+          const rookCol = col === 6 ? 7 : 0;
+          const newRookCol = col === 6 ? 5 : 3;
+          newBoard[row][newRookCol] = newBoard[row][rookCol];
+          newBoard[row][rookCol] = null;
+        }
+
         setBoard(newBoard);
         setCurrentPlayer(currentPlayer === "white" ? "black" : "white");
         setSelectedPiece(null);
+        setValidMoves([]);
+
+        const moveNotation = `${piece.type} ${String.fromCharCode(
+          97 + selectedCol
+        )}${8 - selectedRow} to ${String.fromCharCode(97 + col)}${8 - row}`;
+        setMoveHistory([...moveHistory, moveNotation]);
+
+        if (piece.type === "pawn" && (row === 0 || row === 7)) {
+          promotePawn(row, col);
+        }
+
+        if (piece.type === "pawn" && Math.abs(selectedRow - row) === 2) {
+          setEnPassantTarget([row, col]);
+        } else {
+          setEnPassantTarget(null);
+        }
+
+        if (piece.type === "king" || piece.type === "rook") {
+          if (currentPlayer === "white") {
+            setWhiteCanCastleKingside(false);
+            setWhiteCanCastleQueenside(false);
+          } else {
+            setBlackCanCastleKingside(false);
+            setBlackCanCastleQueenside(false);
+          }
+        }
 
         if (checkWinCondition(newBoard)) {
           setStatus(
@@ -258,26 +403,28 @@ const Game = () => {
               currentPlayer.charAt(0).toUpperCase() + currentPlayer.slice(1)
             } wins!`
           );
+        } else if (checkStalemate()) {
+          setStatus(
+            `${
+              currentPlayer.charAt(0).toUpperCase() + currentPlayer.slice(1)
+            } wins by stalemate!`
+          );
         }
       } else {
         setStatus("Invalid move");
         setSelectedPiece(null);
+        setValidMoves([]);
       }
     } else {
       const piece = board[row][col];
       if (piece && piece.color === currentPlayer) {
         setSelectedPiece([row, col]);
         setStatus("Select a destination");
+        setValidMoves(getValidMoves(row, col));
       } else {
         setStatus("Select a valid piece");
       }
     }
-  };
-
-  const checkWinCondition = (newBoard) => {
-    return !newBoard
-      .flat()
-      .some((piece) => piece && piece.color === currentPlayer);
   };
 
   const handleQuit = () => {
@@ -285,12 +432,48 @@ const Game = () => {
     setStatus(`${winner} wins! ${currentPlayer} quit the game.`);
   };
 
+  const handleReset = () => {
+    setBoard(initialBoard);
+    setCurrentPlayer("white");
+    setSelectedPiece(null);
+    setStatus("Select a piece to move");
+    setCapturePositions([]);
+    setValidMoves([]);
+    setMoveHistory([]);
+    setEnPassantTarget(null);
+    setWhiteCanCastleKingside(true);
+    setWhiteCanCastleQueenside(true);
+    setBlackCanCastleKingside(true);
+    setBlackCanCastleQueenside(true);
+  };
+
+  const countPieces = (color) => {
+    return board.flat().filter((piece) => piece && piece.color === color)
+      .length;
+  };
+
   return (
     <GameWrapper>
-      <h1>Anti-Chess</h1>
-      <StatusMessage>{status}</StatusMessage>
-      <Board board={board} onSquareClick={handleSquareClick} />
-      <Button onClick={handleQuit}>Quit</Button>
+      <GameBoard>
+        <h1>Anti-Chess</h1>
+        <StatusMessage>{status}</StatusMessage>
+        <Board
+          board={board}
+          onSquareClick={handleSquareClick}
+          selectedPiece={selectedPiece}
+          validMoves={validMoves}
+        />
+        <Button onClick={handleQuit}>Quit</Button>
+        <Button onClick={handleReset}>Reset Game</Button>
+      </GameBoard>
+      <SidePanel>
+        <GameInfo
+          currentPlayer={currentPlayer}
+          whitePieces={countPieces("white")}
+          blackPieces={countPieces("black")}
+        />
+        <MoveHistory moves={moveHistory} />
+      </SidePanel>
     </GameWrapper>
   );
 };

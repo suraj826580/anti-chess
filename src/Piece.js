@@ -1,9 +1,20 @@
 import React from "react";
-import styled from "styled-components";
+import styled, { keyframes } from "styled-components";
+
+const fadeIn = keyframes`
+  from { opacity: 0; }
+  to { opacity: 1; }
+`;
 
 const PieceWrapper = styled.div`
-  font-size: 30px;
+  font-size: 40px;
   user-select: none;
+  animation: ${fadeIn} 0.5s ease;
+  transition: transform 0.3s ease;
+
+  &:hover {
+    transform: scale(1.1);
+  }
 `;
 
 const Piece = ({ type, color }) => {
